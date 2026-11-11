@@ -25,11 +25,19 @@ Smart_Medicine_Alarm/
 ├── dashboard/
 │   ├── dashboard.py                 Desktop dashboard (Python, CustomTkinter)
 │   └── requirements.txt             Python dependency for the desktop dashboard
+├── docs/
+│   └── circuit-schematic.png        Full circuit schematic
 ├── .gitignore
 └── README.md
 ```
 
 The Arduino IDE requires a sketch to sit in a folder with the same name, which is why the firmware is in `firmware/SmartMedicineAlarm/`.
+
+## Circuit diagram
+
+![Smart Medicine Alarm circuit schematic](docs/circuit-schematic.png)
+
+The schematic shows every connection, with a pin map, parts list, and wiring notes. Open [`docs/circuit-schematic.png`](docs/circuit-schematic.png) for the full-size image.
 
 ## Hardware
 
