@@ -4,8 +4,8 @@
   Local Wi-Fi Access Point and Web API
 
   GPIO:
-  Buzzer       -> GPIO 18
-  Servo        -> GPIO 19
+  Buzzer       -> GPIO 33
+  Servo        -> GPIO 32
   IR sensor OUT-> GPIO 35
   LCD SDA      -> GPIO 21
   LCD SCL      -> GPIO 22
@@ -26,6 +26,7 @@
 #include <Preferences.h>
 #include <time.h>
 #include <sys/time.h>
+#include <esp_system.h>
 
 // ---------------- WIFI ACCESS POINT ----------------
 
@@ -38,13 +39,18 @@ IPAddress apSubnet(255, 255, 255, 0);
 
 // ---------------- GPIO PINS ------------------------
 
-#define BUZZER_PIN 18
-#define SERVO_PIN  19
+#define BUZZER_PIN 33
+#define SERVO_PIN  32
 #define IR_SENSOR_PIN 35
 
 // Many IR obstacle modules output LOW when detecting.
 // Change to HIGH if your module's output is HIGH on detection.
 #define IR_OBJECT_DETECTED LOW
+
+// A sensor reading must hold this long before the alarm trusts it.
+// Filters flicker from falling tablets and servo motor noise.
+// Raise it if the alarm still stops by itself.
+const unsigned long IR_STABLE_MS = 500;
 
 // ---------------- OBJECTS --------------------------
 
@@ -106,6 +112,10 @@ bool clockSet = false;
 bool alarmActive = false;
 bool buzzerOn = false;
 bool tabletSeenDuringAlarm = false;
+
+bool irRaw = false;              // last raw sensor reading
+bool irStable = false;           // reading after IR_STABLE_MS filter
+unsigned long irChangedAt = 0;
 
 unsigned long lastBuzzerToggle = 0;
 const unsigned long buzzerToggleMs = 200;
@@ -324,31 +334,51 @@ void startAlarm() {
 
 // ---------------- UPDATE ALARM ----------------------
 
-void updateAlarm() {
-  if (!alarmActive) return;
+bool readTabletPresent() {
+  bool raw = (digitalRead(IR_SENSOR_PIN) == IR_OBJECT_DETECTED);
+  unsigned long now = millis();
 
-  bool tabletPresent =
-    (digitalRead(IR_SENSOR_PIN) == IR_OBJECT_DETECTED);
-
-  // First confirm that the tablets are present.
-  if (tabletPresent) {
-    tabletSeenDuringAlarm = true;
+  if (raw != irRaw) {
+    irRaw = raw;
+    irChangedAt = now;
   }
 
-  // Stop the alarm only after tablets were detected
-  // and are subsequently removed.
-  if (tabletSeenDuringAlarm && !tabletPresent) {
-    alarmActive = false;
-    buzzerOn = false;
+  if (now - irChangedAt >= IR_STABLE_MS) {
+    irStable = irRaw;
+  }
 
-    digitalWrite(BUZZER_PIN, LOW);
+  return irStable;
+}
 
-    statusStr = "Medicine taken";
+void updateAlarm() {
+  // Sample every loop so the filter is current when the alarm needs it.
+  bool tabletPresent = readTabletPresent();
 
-    Serial.println("Tablet removal detected. Alarm stopped.");
+  if (!alarmActive) return;
 
-    showLCD("Medicine Taken", "Alarm stopped");
-    return;
+  // Ignore the sensor while the disk turns. One flicker (falling tablet,
+  // motor noise) used to stop the alarm within milliseconds.
+  if (servoPos == currentServoAngle) {
+    // First confirm that the tablets are present.
+    if (tabletPresent) {
+      tabletSeenDuringAlarm = true;
+    }
+
+    // Stop the alarm only after tablets were detected
+    // and are subsequently removed.
+    if (tabletSeenDuringAlarm && !tabletPresent) {
+      alarmActive = false;
+      buzzerOn = false;
+
+      digitalWrite(BUZZER_PIN, LOW);
+
+      statusStr = "Medicine taken";
+
+      Serial.println("Tablet removal detected. Alarm stopped.");
+
+      showLCD("Medicine Taken", "Alarm stopped");
+      return;
+    }
   }
 
   // Keep sounding indefinitely until tablet removal.
@@ -367,6 +397,12 @@ void updateAlarm() {
 // ---------------- SERVO MOVEMENT --------------------
 
 void moveToNextSlot() {
+  if (currentServoAngle >= SERVO_MAX_ANGLE) {
+    // Day rolled over without Reset doses: disk is on its last slot.
+    Serial.println("Servo at last slot. Refill the disk, then Reset doses.");
+    return;
+  }
+
   currentServoAngle += SERVO_STEP_DEGREES;
 
   if (currentServoAngle > SERVO_MAX_ANGLE) {
@@ -489,9 +525,8 @@ void resetDoses() {
 
   slotsLeft = 3;
 
-  lastTriggeredDose = -1;
-  lastTriggeredYDay = -1;
-  lastTriggeredMinute = -1;
+  // lastTriggered* is kept on purpose: a reset during a dose's own
+  // minute must not fire that dose again straight away.
 
   // Stop the alarm and reset the servo.
   alarmActive = false;
@@ -535,6 +570,8 @@ String statusJson() {
   json += alarmActive ? "true," : "false,";
   json += "\"tablet_seen\":" ;
   json += tabletSeenDuringAlarm ? "true," : "false,";
+  json += "\"tablet_now\":";              // live filtered sensor reading
+  json += irStable ? "true," : "false,";
   json += "\"client_count\":" +
           String(WiFi.softAPgetStationNum()) + ",";
   json += "\"servo_angle\":" + String((int)lroundf(servoPos)) + ",";
@@ -627,7 +664,7 @@ dt{color:var(--muted)}dd{margin:0;text-align:right;font-weight:600}
 <div class="dose"><label for="t2">Dose 2</label><input type="time" id="t2" required><span id="s2" class="tag">--</span></div>
 <div class="dose"><label for="t3">Dose 3</label><input type="time" id="t3" required><span id="s3" class="tag">--</span></div>
 <p id="formMsg" class="msg" role="status"></p>
-<p class="hint">Saving a new schedule also resets today's dose count.</p>
+<p class="hint">Saving changes only the times. Doses already given today stay given. To start over, use Reset today's doses.</p>
 <button class="btn primary" id="save" type="submit">Save schedule</button>
 </form></section>
 <section aria-labelledby="dh"><h2 id="dh">Device</h2>
@@ -674,7 +711,7 @@ function render(d){
   $('slots').textContent=d.slots_left+' of 3';
   $('status').textContent=d.status;
   $('clock').textContent=d.clock_set?'Synchronized':'Not set';
-  $('ir').textContent=a?(d.tablet_seen?'Tablets detected':'Waiting for tablets'):'Idle';
+  $('ir').textContent=d.tablet_now?'Sees tablets':'Clear';
   $('servo').textContent=d.servo_angle+'°';
   $('clients').textContent=d.client_count;
   $('upd').textContent=new Date().toLocaleTimeString();
@@ -784,11 +821,13 @@ void handleSetSchedule() {
   for (int i = 0; i < 3; i++) {
     doses[i].hour = newHours[i];
     doses[i].minute = newMinutes[i];
-    doseDone[i] = false;
   }
 
-  slotsLeft = 3;
   saveDoseTimes();
+
+  // Only the times change. Doses already given today stay given, so a
+  // dose is never dispensed twice and the servo stays in step with
+  // slotsLeft. "Reset today's doses" is the way to start over.
 
   statusStr = "Schedule saved";
 
@@ -844,6 +883,14 @@ void setup() {
   lcd.backlight();
 
   showLCD("Medicine System", "Starting...");
+
+  // A weak 5 V supply resets the ESP32 when the servo starts. That also
+  // wipes the clock, so the dose never completes. Make it visible.
+  if (esp_reset_reason() == ESP_RST_BROWNOUT) {
+    Serial.println("Last reset: BROWNOUT. Power the servo from a 5 V 2 A supply.");
+    showLCD("Power dip reset", "Check servo 5V");
+    delay(3000);
+  }
 
   loadDoseTimes();
 

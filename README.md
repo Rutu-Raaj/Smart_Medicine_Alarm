@@ -55,10 +55,10 @@ The schematic shows every connection, with a pin map, parts list, and wiring not
 
 | ESP32 GPIO | Connected to |
 |---|---|
-| GPIO 18 | Buzzer (+) |
-| GPIO 19 | Servo signal (orange or yellow wire) |
 | GPIO 21 | LCD SDA |
 | GPIO 22 | LCD SCL |
+| GPIO 32 | Servo signal (orange or yellow wire) |
+| GPIO 33 | Buzzer (+) |
 | GPIO 35 | IR sensor OUT |
 
 ### Wiring notes
@@ -111,7 +111,9 @@ The laptop must be connected to the **Smart_Medicine_Alarm** Wi-Fi network. The 
 1. The servo turns the pill disk 60° to the next compartment (0° → 60° → 120° → 180°).
 2. The buzzer starts beeping and the LCD shows `Take Medicine`.
 3. The dashboards show a red **Time to take medicine** alert.
-4. When the IR sensor sees the tablets and then sees them removed, the alarm stops and the dose is marked as dispensed.
+4. After the disk stops, when the IR sensor sees the tablets and then sees them removed (each for at least 0.5 s), the alarm stops and the dose is marked as dispensed.
+
+If the LCD shows `Power dip reset` at start-up, the ESP32 was reset by a voltage drop, usually when the servo started. Power the servo from a 5 V, 2 A supply instead of the laptop's USB port.
 
 At midnight the dose list resets for the new day. **Reset doses** clears today's doses and returns the servo to 0°.
 
@@ -123,7 +125,7 @@ All endpoints use HTTP GET and return JSON. The device is at `http://192.168.4.1
 |---|---|---|
 | `/api/status` | none | Current time, next dose, slots left, alarm and sensor state, servo angle, and the three doses |
 | `/api/settime` | `epoch` (Unix time, UTC) | Sets the device clock |
-| `/api/schedule` | `h1, m1, h2, m2, h3, m3` | Saves three dose times (24-hour) and resets today's dose count |
+| `/api/schedule` | `h1, m1, h2, m2, h3, m3` | Saves three dose times (24-hour). Doses already given today stay given. |
 | `/api/reset` | none | Marks all doses pending, stops the alarm, returns the servo to 0° |
 
 Example:
@@ -140,6 +142,7 @@ These constants are at the top of `firmware/SmartMedicineAlarm/SmartMedicineAlar
 |---|---|---|
 | `AP_SSID`, `AP_PASSWORD` | `Smart_Medicine_Alarm`, `12345678` | Wi-Fi network created by the ESP32. Change the password before real use. |
 | `IR_OBJECT_DETECTED` | `LOW` | Sensor output level when tablets are present |
+| `IR_STABLE_MS` | `500` | How long a sensor reading must hold before the alarm trusts it. Raise it if the alarm stops by itself. |
 | `SERVO_MS_PER_DEGREE` | `35` | Servo speed. A 60° step takes about 2.1 s. Larger is slower. |
 | `SERVO_MIN_US`, `SERVO_MAX_US` | `500`, `2400` | Servo pulse width at 0° and 180°. Calibrate for your servo. |
 | `SERVO_STEP_DEGREES` | `60` | Rotation per dose |

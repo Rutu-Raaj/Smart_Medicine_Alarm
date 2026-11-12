@@ -241,7 +241,7 @@ class SmartMedicineDashboard:
         )
         self._label(
             panel, "small", MUTED,
-            text="24-hour time. Saving also resets today's dose count."
+            text="24-hour time. Doses already given today stay given."
         ).pack(anchor="w", padx=22, pady=(2, 10))
 
         rows = ctk.CTkFrame(panel, fg_color="transparent")
@@ -445,14 +445,15 @@ class SmartMedicineDashboard:
         alarm_active = bool(data.get("alarm_active", False))
         tablet_seen = bool(data.get("tablet_seen", False))
 
+        self.sensor_text.set(
+            "Sees tablets" if data.get("tablet_now") else "Clear"
+        )
+
         if alarm_active:
             self.tablet_text.set(
                 "Tablets detected. Take them from the tray to stop the alarm."
                 if tablet_seen else
                 "Waiting for the sensor to detect the tablets."
-            )
-            self.sensor_text.set(
-                "Tablets detected" if tablet_seen else "Waiting for tablets"
             )
             self.overview.grid_remove()
             self.alarm_banner.grid()
@@ -462,7 +463,6 @@ class SmartMedicineDashboard:
                 self.root.deiconify()
                 self.root.lift()
         else:
-            self.sensor_text.set("Idle")
             self.alarm_banner.grid_remove()
             self.overview.grid()
 
