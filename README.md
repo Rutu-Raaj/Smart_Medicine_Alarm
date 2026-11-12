@@ -26,12 +26,17 @@ Smart_Medicine_Alarm/
 │   ├── dashboard.py                 Desktop dashboard (Python, CustomTkinter)
 │   └── requirements.txt             Python dependency for the desktop dashboard
 ├── docs/
-│   └── circuit-schematic.png        Full circuit schematic
+│   ├── circuit-schematic.png        Full circuit schematic
+│   └── Smart_Medicine_Alarm_Documentation.pdf   Full project documentation
 ├── .gitignore
 └── README.md
 ```
 
 The Arduino IDE requires a sketch to sit in a folder with the same name, which is why the firmware is in `firmware/SmartMedicineAlarm/`.
+
+## Documentation
+
+[`docs/Smart_Medicine_Alarm_Documentation.pdf`](docs/Smart_Medicine_Alarm_Documentation.pdf) is the full project documentation (22 pages). It covers the hardware, wiring, firmware logic with flowcharts and state diagrams, both dashboards, the device API, setup, daily use, configuration, troubleshooting, and the change log.
 
 ## Circuit diagram
 
